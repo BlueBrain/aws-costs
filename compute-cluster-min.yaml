@@ -1,0 +1,75 @@
+# A sandbox cluster
+# -----------------
+# For this setup one created a new VPC, completely independent, only assigning private IPs
+# This complicates a bit the setup but seems way more secure against attacks and AWS hidden costs.
+# Only the HEAD node gets a public IP address.
+# The VPC requires a number of service endpoints for the private IPs to access required AWS services. Refer to:
+#  - https://docs.aws.amazon.com/parallelcluster/latest/ug/network-configuration-v3.html#aws-parallelcluster-in-a-single-public-subnet-no-internet-v3
+# To not over complicate security one defined a scheme based on peer trust. Ie, all cluster components
+# (EC2 instances, slurm db RDS, shared EFS) belong to the same group, and the group trusts (inbound) itself.
+Region: us-east-1
+Image:
+  Os: alinux2
+Tags:
+  - Key: vlab-id
+    Value: testing-vlab-123
+HeadNode:
+  InstanceType: t3.micro
+  Networking:
+    SubnetId: subnet-0a77796b62ab53fac
+    # In this setup we have an internal VPC, no public IPs
+    # So enable one Elastic public IP for the Head node
+    # NOTE: Requires the VPC to have an internet gateway
+    ElasticIp: true
+    # Let it create a security group which e.g. allow universal SSH access.
+    # Register the default security group as "Additional"
+    AdditionalSecurityGroups:
+      - sg-0a8f4427839597421
+  Ssh:
+    KeyName: compute-cluster-key
+Scheduling:
+  Scheduler: slurm
+  SlurmSettings:
+    ScaledownIdletime: 5
+    EnableMemoryBasedScheduling: false
+    # These settings are recommended for private clusters (no internet)
+    # In our setup we have internet in the head node, not on the others so this doesnt seem necessary
+    # Dns:
+    #  DisableManagedDns: true
+    #  UseEc2Hostnames: true
+    Database:
+      Uri: slurm-accounting.cfiy6s4ic6ue.us-east-1.rds.amazonaws.com:3306
+      UserName: admin
+      PasswordSecretArn: arn:aws:secretsmanager:us-east-1:130659266700:secret:slurm-accounting-db-TgsUIE
+  SlurmQueues:
+  - Name: debug # for testing purposes
+    AllocationStrategy: lowest-price
+    ComputeResources:
+    - Name: t3micro
+      Instances:
+      - InstanceType: t3.micro
+      MinCount: 0
+      MaxCount: 8
+    Networking:
+      # Same subnet and security group as the head node and aux services
+      SubnetIds:
+        - subnet-0a77796b62ab53fac
+      AdditionalSecurityGroups:
+        - sg-0a8f4427839597421
+Imds:
+  ImdsSupport: v2.0
+SharedStorage:
+  # Ensure the created EFS belongs to the same Security group
+  - Name: Efs-Home
+    StorageType: Efs
+    MountDir: /efs
+    EfsSettings:
+      FileSystemId: fs-094bef78707c336e2
+#  - Name: FsxLustre-Scratch
+#    StorageType: FsxLustre
+#    MountDir: /sbo/data
+#    FsxLustreSettings:
+#      DeploymentType: PERSISTENT_1
+#      StorageCapacity: 1200  # Setup Lustre FSx for 1.2TiB (minimum allowed)
+#      PerUnitStorageThroughput: 125  # Request a bandwidth of 250Mbps/TiB (similar to SCRATCH_2)
+#      DataCompressionType: LZ4  # Data compression for higher-throughput between OSSs <-> OSTs
