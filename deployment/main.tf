@@ -14,14 +14,9 @@ resource "aws_iam_role" "lambda_role_all" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "AWSLambda_FullAccess" {
+resource "aws_iam_role_policy_attachment" "AWSLambda_Read" {
   role       = aws_iam_role.lambda_role_all.name
-  policy_arn = "arn:aws:iam::aws:policy/AWSLambda_FullAccess"
-}
-
-resource "aws_iam_role_policy_attachment" "AWSLambda_Ec2Read" {
-  role       = aws_iam_role.lambda_role_all.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess"
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
 data "archive_file" "resource_discovery_package" {

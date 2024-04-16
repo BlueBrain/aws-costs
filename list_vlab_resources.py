@@ -2,18 +2,15 @@
 
 import boto3
 import json
-import subprocess
 import sys
 
 TAG_KEY = "obp:costcenter:vlabid"
-# TAG_KEY = "vlab-id"
-
-# subprocess.check_output(("pip", "install", "awscli"))
 
 # Initialize globally for potential reuse
 rg_tagging = boto3.client('resourcegroupstaggingapi')
 res_access = boto3.client('ram')
 instance_cli = boto3.client("ec2")
+s3_client = boto3.client('s3')
 
 cache_buckets = {}
 
@@ -35,7 +32,7 @@ def get_resources_info(arn_list):
 
     for arn in arn_list:
         if arn.startswith("arn:aws:ec2"):
-            instance_ids.append(arn[arn.rfind("/")+1:])
+            instance_ids.append(arn[arn.rfind("/") + 1:])
         elif arn.startswith("arn:aws:s3"):
             s3_bucket_ids.append(arn.split(":::")[1])
 
@@ -47,30 +44,30 @@ def get_resources_info(arn_list):
         for i in instances
     }
 
-    # def get_s3_summary(bucket_id):
-    #     bucket_info = {}
-    #     # S3 summarize is only availabl in the CLI
-    #     info = subprocess.check_output(("aws", "s3", "ls", "--summarize") + (bucket_id,))
-    #     for i in info.decode().split("\n"):
-    #         if "Total Objects" in i:
-    #             bucket_info["total_objects"] = int(i.split(":")[1])
-    #         elif "Total Size" in i:
-    #             bucket_info["total_size"] = int(i.split(":")[1])
-    #     return bucket_info
+    buckets = {}
+    for bucket_id in s3_bucket_ids:
+        if (bucket_info := cache_buckets.get(bucket_id)) is None:
+            bucket_info = cache_buckets[bucket_id] = get_s3_summary(bucket_id)
+        buckets[bucket_id] = bucket_info
 
-    # buckets = {}
-    # for bucket_id in s3_bucket_ids:
-    #     bucket_info = cache_buckets.get(bucket_id) or get_s3_summary(bucket_id)
-
-    #     if bucket_info is None:
-    #         bucket_info = get_s3_summary(bucket_id)
-    #         cache_buckets[bucket_id] = bucket_info
-
-    #     buckets[bucket_id] = bucket_info
-
-    out_objects["s3_buckets"] = s3_bucket_ids
+    out_objects["s3_buckets"] = buckets
 
     return out_objects
+
+
+def get_s3_summary(bucket_id):
+    """Get the summary of an s3 bucket total usage
+    """
+    total_objects = 0
+    total_size = 0
+    response = s3_client.list_objects_v2(Bucket=bucket_id)
+
+    for object in response['Contents']:
+        if (size := object['Size']) > 0:
+            total_objects += 1
+            total_size += size
+
+    return {"total_objects": total_objects, "total_size_kb": total_size // 1024}
 
 
 def list_handler(event, _context):
