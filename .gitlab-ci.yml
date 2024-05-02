@@ -2,10 +2,13 @@
 stages:
   - build
 
+default:
+  image: python:3.9-alpine
+
 run_checks:
   stage: build
   script:
-    - /opt/python/cp39-cp39/bin/python3 -m venv .venv
+    - python3 -m venv .venv
     - . .venv/bin/activate
     - pip install flake8
     - flake8
