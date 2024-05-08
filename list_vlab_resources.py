@@ -4,7 +4,8 @@ import boto3
 import json
 import sys
 
-TAG_KEY = "obp:costcenter:vlabid"
+VLAB_TAG_KEY = "obp:costcenter:vlabid"
+PROJECT_TAG_KEY = "obp:costcenter:project"
 
 # Initialize globally for potential reuse
 rg_tagging = boto3.client('resourcegroupstaggingapi')
@@ -15,8 +16,15 @@ s3_client = boto3.client('s3')
 cache_buckets = {}
 
 
-def get_resources(vlab):
-    query = {"TagFilters": [{'Key': TAG_KEY, 'Values': [vlab]}]}
+class InvalidRequest(Exception):
+    """When the request is invalid, likely due to invalid or missing data"""
+
+
+def get_resources(vlab, project=None):
+    if project is not None:
+        query = {"TagFilters": [{'Key': PROJECT_TAG_KEY, 'Values': [vlab]}]}
+    else:
+        query = {"TagFilters": [{'Key': VLAB_TAG_KEY, 'Values': [vlab]}]}
     result = rg_tagging.get_resources(PaginationToken='', **query)
     return [r["ResourceARN"] for r in result["ResourceTagMappingList"]]
 
@@ -71,40 +79,55 @@ def get_s3_summary(bucket_id):
 
 
 def list_handler(event, _context):
-    vlab = event.get("vlab")
-    if vlab is None and (qstring := event.get("queryStringParameters")):
-        vlab = qstring.get("vlab")
-    if vlab is None:
-        return {"statusCode": 400, "body": "missing vlab query param"}
+    try:
+        vlab, project, _opts = _get_vlab_query_params(event)
+        result = get_resources(vlab, project)
+    except InvalidRequest as e:
+        return response_text(str(e), code=400)
+    except Exception as e:
+        return response_text(str(e), code=500)
 
-    result = get_resources(vlab)
-
-    return {
-        "statusCode": 200,
-        "headers": {"Content-Type": "application/json"},
-        "body": json.dumps(result)
-    }
+    return response_json(result)
 
 
 def detail_handler(event, _context):
-    vlab = event.get("vlab")
-    if vlab is None and (qstring := event.get("queryStringParameters")):
-        vlab = qstring.get("vlab")
-    if vlab is None:
-        return {"statusCode": 400, "body": "missing vlab query param"}
-
-    status_code = 200
     try:
-        res = get_resources(vlab)
-        result = get_resources_info(res)
+        vlab, project, _opts = _get_vlab_query_params(event)
+        resources = get_resources(vlab, project)
+        result = get_resources_info(resources)
+    except InvalidRequest as e:
+        return response_text(str(e), code=400)
     except Exception as e:
-        status_code = 400
-        result = str(e)
+        return response_text(str(e), code=500)
 
+    return response_json(result)
+
+
+def _get_vlab_query_params(event):
+    vlab_id = event.get("vlab_id")
+    options = {}
+
+    if vlab_id is None and "queryStringParameters" in event:
+        if options := event.get("queryStringParameters"):
+            vlab_id = options.pop("vlab", None)
+
+    project_id = options.pop("project", None)
+
+    if vlab_id is None and project_id is None:
+        raise InvalidRequest("missing required 'vlab' or 'project' query param")
+
+    return vlab_id, project_id, options
+
+
+def response_text(text: str, code: int = 200):
+    return {"statusCode": code, "body": text}
+
+
+def response_json(data, code: int = 200):
     return {
-        "statusCode": status_code,
+        "statusCode": code,
         "headers": {"Content-Type": "application/json"},
-        "body": json.dumps(result)
+        "body": json.dumps(data),
     }
 
 
