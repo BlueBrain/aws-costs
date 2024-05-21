@@ -5,7 +5,7 @@ import json
 import sys
 
 VLAB_TAG_KEY = "obp:costcenter:vlabid"
-PROJECT_TAG_KEY = "obp:costcenter:project"
+PROJECT_TAG_KEY = "obp:costcenter:projectid"
 
 # Initialize globally for potential reuse
 rg_tagging = boto3.client('resourcegroupstaggingapi')
